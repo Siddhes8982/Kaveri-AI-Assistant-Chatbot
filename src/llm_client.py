@@ -267,10 +267,9 @@ class Conversation:
                     _validate_tool_arguments(name, call["arguments"], self.tools)
                     result = self.functions[name](**call["arguments"])
                     result_text = str(result)
-                except Exception as error:
-                    # Exception messages can include database URLs or other credentials.
-                    logger.error("Tool execution failed for %s (%s)", name, type(error).__name__)
-                    result_text = "Tool error: the request could not be completed safely."
+                except Exception:
+                    logger.exception("Tool execution failed for %s", name)
+                    raise
                 self.add_tool_message(result_text, call_id, name)
                 self.client.log.write(conversation_id=self.id, turn=self.turn, role="tool",
                                       tool_call_id=call_id, name=name, content=result_text)

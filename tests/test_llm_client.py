@@ -149,10 +149,42 @@ def test_conversation_tool_execution_and_log(tmp_path):
     assert conv.ask("question") == "found"
     assert called == [{"key": "value"}]
     assert conv.history[-2]["tool_call_id"] == "real-id"
+    assert conv.history[-2]["content"] == "result"
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert [r["role"] for r in records] == ["user", "assistant", "tool", "assistant"]
     assert records[2]["tool_call_id"] == "real-id"
     assert "test-secret" not in path.read_text(encoding="utf-8")
+
+
+def _conversation_with_failing_tool(error):
+    tool_reply = Reply(content="", tool_calls=[{"id": "failure-call", "name": "lookup",
+                                                  "arguments": {"key": "value"}}], model="m")
+    client = fake_client(lambda **_: None)
+    client.chat = lambda *args, **kwargs: tool_reply
+
+    def fail_tool(**_kwargs):
+        raise error
+
+    return Conversation(client, tools=[tool_spec("lookup", "desc", {"key": {"type": "string"}}, ["key"])],
+                       functions={"lookup": fail_tool})
+
+
+def test_tool_value_error_propagates_and_no_tool_result_is_added():
+    error = ValueError("Database failure")
+    conversation = _conversation_with_failing_tool(error)
+    with pytest.raises(ValueError) as caught:
+        conversation.ask("question")
+    assert caught.value is error
+    assert not any(message["role"] == "tool" for message in conversation.history)
+
+
+def test_tool_runtime_error_propagates_unchanged():
+    error = RuntimeError("Tool failure")
+    conversation = _conversation_with_failing_tool(error)
+    with pytest.raises(RuntimeError) as caught:
+        conversation.ask("question")
+    assert caught.value is error
+    assert not any(message["role"] == "tool" for message in conversation.history)
 
 
 def test_sql_tool_parameterized_query_and_missing(monkeypatch):
